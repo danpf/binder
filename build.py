@@ -10,165 +10,441 @@
 
 ## @file   build.py
 ## @brief  Script to build Binder
-## @author Sergey Lyskov
+## @author Danny Farrell
 
-from __future__ import print_function
-
-import os, sys, argparse, platform, subprocess, imp, shutil, distutils.dir_util
-
-from collections import OrderedDict
-
-if sys.platform.startswith("linux"): Platform = "linux" # can be linux1, linux2, etc
-elif sys.platform == "darwin" : Platform = "macos"
-elif sys.platform == "cygwin" : Platform = "cygwin"
-elif sys.platform == "win32" : Platform = "windows"
-else: Platform = "unknown"
-PlatformBits = platform.architecture()[0][:2]
-
-_machine_name_ = os.uname()[1]
-
-_python_version_ = '{}.{}'.format(sys.version_info.major, sys.version_info.minor)  # should be formatted: 2.7, 3.5, 3.6, ...
-
-_pybind11_version_ = '32c4d7e17f267e10e71138a78d559b1eef17c909'
+from typing import List
+import sys
+import argparse
+import subprocess
+import shutil
+from abc import ABCMeta, abstractmethod
+from pathlib import Path
 
 
-def execute(message, command_line, return_='status', until_successes=False, terminate_on_failure=True, silent=False):
-    print(message);  print(command_line)
-    while True:
-
-        p = subprocess.Popen(command_line, bufsize=0, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output, errors = p.communicate()
-
-        output = output + errors
-
-        if sys.version_info[0] == 2: output = output.decode('utf-8', errors='replace').encode('utf-8', 'replace') # Python-2
-        else: output = output.decode('utf-8', errors='replace')  # Python-3
-
-        exit_code = p.returncode
-
-        if exit_code  or  not silent: print(output)
-
-        if exit_code and until_successes: pass  # Thats right - redability COUNT!
-        else: break
-
-        print( "Error while executing {}: {}\n".format(message, output) )
-        print("Sleeping 60s... then I will retry...")
-        time.sleep(60)
-
-    if return_ == 'tuple': return(exit_code, output)
-
-    if exit_code and terminate_on_failure:
-        print("\nEncounter error while executing: " + command_line)
-        if return_==True: return True
-        else: print("\nEncounter error while executing: " + command_line + '\n' + output); sys.exit(1)
-
-    if return_ == 'output': return output
-    else: return False
+def get_platform():
+    if sys.platform.startswith("linux"):
+        platform = "linux"  # can be linux1, linux2, etc
+    else:
+        known_platforms = {"darwin": "macos", "cygwin": "cygwin", "win32": "windows"}
+        platform = known_platforms.get(sys.platform, "unknown")
+    return platform
 
 
-def update_source_file(file_name, data):
-    ''' write data to a file but only if file does not exist or it content different from data '''
-    if( not os.path.isfile(file_name)  or  open(file_name).read() != data ):
-        print('Writing '+ file_name)
-        with open(file_name, 'w') as f: f.write(data)
+SUPPORTED_PYBIND11_SHA = "32c4d7e17f267e10e71138a78d559b1eef17c909"
+ALLOWED_BUILD_MODES = ("Release", "Debug", "MinSizeRel", "RelWithDebInfo")
+KNOWN_COMPILERS = {
+    "clang": ["clang", "clang++"],
+    "gcc": ["gcc", "g++"],
+}
+
+SUGGESTED_LLVM_RELEASE = "llvmorg-13.0.1"
+SUGGESTED_BINDER_BRANCH = "master"
 
 
-def get_compiler_family():
-    ''' Try to guess compiler family using Options.compiler '''
-    if 'clang' in Options.compiler: return 'clang'
-    if 'gcc'   in Options.compiler: return 'gcc'
-    if 'cl'    in Options.compiler: return 'cl'
-    return 'unknown'
+class CompileOptions:
+    _cmake_cc_compiler_template = "-DCMAKE_C_COMPILER={}"
+    _cmake_cxx_compiler_template = "-DCMAKE_CXX_COMPILER={}"
+    _cmake_build_mode_compiler_template = "-DCMAKE_BUILD_TYPE={}"
+
+    _allowed_build_modes = ALLOWED_BUILD_MODES
+    _compiler_map = KNOWN_COMPILERS
+
+    def __init__(self, compiler: str, build_mode: str):
+        if build_mode not in self._allowed_build_modes:
+            raise RuntimeError(f"Build mode {build_mode} not supported, we support {self._allowed_build_modes}")
+        self.build_mode = build_mode
+        if compiler not in self._compiler_map:
+            raise RuntimeError(f"Compiler {compiler} not supported, we support {self._compiler_map.keys()}")
+        self.compiler = compiler
+        self.cc, self.cpp = self._compiler_map[compiler]
+        self.cmake_extra_commands = self.cmake_extra_commands_from_known_compiler_paths(
+            full_cc=self.cc, full_cpp=self.cpp, build_mode=self.build_mode
+        )
+
+    @classmethod
+    def cmake_extra_commands_from_known_compiler_paths(cls, full_cc: str, full_cpp: str, build_mode: str) -> str:
+        out = []
+        if full_cc:
+            out.append(cls._cmake_cc_compiler_template.format(full_cc))
+        if full_cpp:
+            out.append(cls._cmake_cxx_compiler_template.format(full_cpp))
+        if build_mode:
+            out.append(cls._cmake_build_mode_compiler_template.format(build_mode))
+        return " ".join(out)
 
 
-def install_llvm_tool(name, source_location, prefix, debug, jobs=1, clean=True, gcc_install_prefix=None):
-    ''' Install and update (if needed) custom LLVM tool at given prefix (from config).
-        Return absolute path to executable on success and terminate with error on failure
-    '''
-    if not os.path.isdir(prefix): os.makedirs(prefix)
+class VersionOrSourceLocation:
+    def __init__(self, version: str = "", source_location: str = ""):
+        if version and source_location:
+            raise RuntimeError(
+                f"Must have only version OR source_location, not both -- have version='{version}', source_location='{source_location}'"
+            )
+        if not version and not source_location:
+            raise RuntimeError(
+                f"Must have only version OR source_location, not neither -- have version='{version}', source_location='{source_location}'"
+            )
+        self.version = version
+        self.source_location = source_location
 
-    llvm_version='6.0.1'
-    prefix += '/llvm-' + llvm_version
-    clang_path = "{prefix}/tools/clang".format(**locals())
-
-    if not os.path.isfile(prefix + '/CMakeLists.txt'): execute('Download llvm source.', 'curl https://releases.llvm.org/{llvm_version}/llvm-{llvm_version}.src.tar.xz | tar -Jxo && mv llvm-{llvm_version}.src {prefix}'.format(llvm_version=llvm_version, prefix=prefix) )
-
-    if not os.path.isdir(clang_path): execute('Download clang source.', 'curl https://releases.llvm.org/{llvm_version}/cfe-{llvm_version}.src.tar.xz | tar -Jxo && mv cfe-{llvm_version}.src {clang_path}'.format(llvm_version=llvm_version, clang_path=clang_path) )
-
-    if not os.path.isdir(prefix+'/tools/clang/tools/extra'): os.makedirs(prefix+'/tools/clang/tools/extra')
-
-    tool_link_path = '{prefix}/tools/clang/tools/extra/{name}'.format(prefix=prefix, name=name)
-    if os.path.islink(tool_link_path): os.unlink(tool_link_path)
-    os.symlink(source_location, tool_link_path)
-
-    cmake_lists = prefix + '/tools/clang/tools/extra/CMakeLists.txt'
-    tool_build_line = 'add_subdirectory({})'.format(name)
-
-    if not os.path.isfile(cmake_lists):
-        with open(cmake_lists, 'w') as f: f.write(tool_build_line + '\n')
-
-    build_dir = prefix+'/build_' + llvm_version + '.' + Platform + '.' +_machine_name_ + ('.debug' if debug else '.release')
-    if not os.path.isdir(build_dir): os.makedirs(build_dir)
-    execute(
-        'Building tool: {}...'.format(name),
-        'cd {build_dir} && cmake -G Ninja -DCMAKE_BUILD_TYPE={build_type} -DLLVM_ENABLE_EH=1 -DLLVM_ENABLE_RTTI=ON {gcc_install_prefix} .. && ninja binder tools/clang/lib/Headers/clang-headers {jobs}'.format( # was 'binder clang', we need to build Clang so lib/clang/<version>/include is also built
-            build_dir=build_dir,
-            jobs="-j{}".format(jobs) if jobs else "",
-            build_type='Debug' if debug else 'Release',
-            gcc_install_prefix='-DGCC_INSTALL_PREFIX='+gcc_install_prefix if gcc_install_prefix else ''),
-        silent=True)
-    print()
-
-    executable = build_dir + '/bin/' + name
-    if not os.path.isfile(executable): print("\nEncounter error while running install_llvm_tool: Build is complete but executable {} is not there!!!".format(executable) ); sys.exit(1)
-
-    return executable
+    def get_id(self):
+        if self.version:
+            return self.version
+        else:
+            return f"FROM_SOURCE_{self.source_location}"
 
 
-def install_pybind11(prefix, clean=True):
-    ''' Download and install PyBind11 library at given prefix. Install version specified by _pybind11_version_ sha1
-    '''
-    #git_checkout = '( git fetch && git checkout {0} && git reset --hard {0} && git pull )'.format(_pybind11_version_) if clean else 'git checkout {}'.format(_pybind11_version_)
-    git_checkout = '( git fetch && git reset --hard {0} )'.format(_pybind11_version_) if clean else 'git checkout {}'.format(_pybind11_version_)
+class BaseInstaller(metaclass=ABCMeta):
+    @abstractmethod
+    def _prepare(self):
+        """Setup the directories + download the packages"""
+        pass
 
-    if not os.path.isdir(prefix): os.makedirs(prefix)
-    package_dir = prefix + '/pybind11'
+    def prepare(self):
+        """Setup the directories + download the packages"""
+        self._prepare()
 
-    if not os.path.isdir(package_dir): execute('Clonning pybind11...', 'cd {} && git clone https://github.com/RosettaCommons/pybind11.git'.format(prefix) )
-    execute('Checking out PyBind11 revision: {}...'.format(_pybind11_version_), 'cd {package_dir} && ( {git_checkout} )'.format(package_dir=package_dir, git_checkout=git_checkout), silent=True)
-    print()
+    @abstractmethod
+    def _install(self):
+        """Setup the directories + download the packages + install them"""
 
-    include = package_dir + '/include/pybind11/pybind11.h'
-    if not os.path.isfile(include): print("\nEncounter error while running install_pybind11: Install is complete but include file {} is not there!!!".format(include) ); sys.exit(1)
+        pass
 
-    return package_dir + '/include'
+    def install(self):
+        """Setup the directories + download the packages + install them"""
+        self._prepare()
+        self._install()
 
 
-def main(args):
-    ''' Binding demo build/test script '''
+class MasterBinderInstaller(BaseInstaller):
+    _git_remote = "https://github.com/RosettaCommons/binder.git"
+    """
+    Generally you install binder with the following format:
+        /build/
+        ├─ binder/
+        ├─ llvm/
+        │  ├─ clang/
+        │  │  ├─ build/
+        │  │  │  ├─ bin/ (binaries in here)
+        │  ├─ bin/ (our symlink to clang/build/bin)
+        │  ├─ clang-tools-extra/
+        │  ├─ VERSION
+        │  ├─ ...
+        ├─ pybind11/
+        │  ├─ include/
+        │  ├─ ...
+        ├─ ENVFILE
 
+    **NOTE: This is NOT setup to build binder's tests, only binder.
+    """
+
+    def __init__(
+        self,
+        binder_branch_or_source_location: VersionOrSourceLocation,
+        llvm_version_or_source_location: VersionOrSourceLocation,
+        pybind11_sha_or_source_location: VersionOrSourceLocation,
+        build_dir: str,
+        _compiler: str,
+        build_mode: str,
+        install_cpus: int,
+    ):
+        self.llvm_version_or_source_location = llvm_version_or_source_location
+        self.pybind11_sha_or_source_location = pybind11_sha_or_source_location
+        self.binder_branch_or_source_location = binder_branch_or_source_location
+        self.compiler = CompileOptions(_compiler, build_mode)
+        self.build_dir = build_dir
+        self.install_cpus = install_cpus
+
+        self.binder_download_dir = str(Path(self.build_dir) / "binder")
+        binder_source_directory = (
+            str(Path(self.binder_download_dir) / "source")
+            if self.binder_branch_or_source_location.version
+            else str(Path(self.binder_branch_or_source_location.source_location) / "source")
+        )
+
+        self.llvm_installer = LLVMInstall(
+            llvm_version_or_source_location,
+            self.compiler,
+            binder_source_directory,
+            base_source_directory=str(Path(self.build_dir) / "llvm-project"),
+            install_cpus=self.install_cpus,
+        )
+        self.pybind11_installer = Pybind11Installer(pybind11_sha_or_source_location, str(Path(build_dir) / "pybind11"))
+        self.envfile = str(Path(build_dir) / "ENVFILE")
+
+    def _prepare(self):
+        if self.binder_branch_or_source_location.version:
+            download_command = f"git clone --depth 1 --branch {self.binder_branch_or_source_location.version} {self._git_remote} {self.binder_download_dir}"
+            ret = subprocess.run(download_command.split())
+            if ret.returncode != 0:
+                raise RuntimeError(f"Error downloading binder version {self.binder_branch_or_source_location.version}")
+        self.pybind11_installer.prepare()
+        self.llvm_installer.prepare()
+
+    def _install(self):
+        env_info = []
+        env_info += self.pybind11_installer._install()
+        env_info += self.llvm_installer._install()
+        with open(self.envfile, "w") as fh:
+            fh.write("\n".join(env_info))
+
+
+class LLVMInstall(BaseInstaller):
+    _binder_clang_tools_extras_subdir = "binder"
+    _git_remote = "https://github.com/llvm/llvm-project.git"
+    """
+    Generally you install binder with the following format:
+        /build/
+        ├─ binder/
+        ├─ llvm/
+        │  ├─ clang/
+        │  │  ├─ build/
+        │  │  │  ├─ bin/ (binaries in here)
+        │  ├─ bin/ (our symlink to clang/build/bin)
+        │  ├─ clang-tools-extra/
+        │  ├─ VERSION
+        │  ├─ ...
+        ├─ pybind11/
+        │  ├─ include/
+        │  ├─ ...
+        ├─ ENVFILE
+
+    This class sets help setup the clang/llvm part of that relationship for you,
+    gets you ready to install llvm/clang, and gives you access to the files/dirs you might
+    need to use to build binder.
+
+    In the above example:
+        /build is our 'base_install_directory'
+        /build/llvm is our 'build_subdir'
+    """
+
+    def __init__(
+        self,
+        version_or_source_location: VersionOrSourceLocation,
+        _compiler: CompileOptions,
+        binder_source_directory: str,
+        base_source_directory: str = "/build/llvm-project",
+        build_subdir: str = "build",
+        install_cpus: int = 8,
+
+    ):
+        self.version_or_source_location = version_or_source_location
+        self.base_source_directory = base_source_directory
+        self.binder_source_directory = binder_source_directory
+        self.build_subdir = build_subdir
+        self.compiler = _compiler
+        self.install_cpus = install_cpus
+
+        basedir = Path(self.base_source_directory)
+        self.build_dir = str(Path(self.base_source_directory) / build_subdir)
+        self.build_bin_dir = str(Path(self.build_dir) / "bin")
+        self.llvm_dir = str(Path(self.base_source_directory) / "llvm")
+
+        self.clang_tools_extra_subdir = str(basedir / "clang-tools-extra")
+        self.clang_tools_extra_subdir_cmakelists = str(Path(self.clang_tools_extra_subdir) / "CMakeLists.txt")
+        self.binder_clang_tools_extra_subdir = str(
+            Path(self.clang_tools_extra_subdir) / self._binder_clang_tools_extras_subdir
+        )
+
+    def _run_llvm_cmake_base_command(self, cmake_extra_commands: str):
+        command = (
+            f"cmake llvm -B {self.build_dir} -G Ninja"
+            f" {cmake_extra_commands}"
+            f" -DLLVM_ENABLE_LIBCXX=ON -DLLVM_INCLUDE_TESTS=OFF -DLLVM_ENABLE_RUNTIMES='libc;libcxx;libcxxabi' -DLLVM_ENABLE_PROJECTS='clang-tools-extra;clang' -DLLVM_ENABLE_EH=1 -DLLVM_ENABLE_RTTI=ON"
+        )
+        print("Running command", command)
+        ret = subprocess.run(command.split(), cwd=self.base_source_directory)
+        if ret.returncode != 0:
+            raise RuntimeError("Error running llvm cmake init command")
+
+    def _run_ninja_build_and_install_command(self):
+        for command in [
+            f"ninja -j {self.install_cpus}",
+            f"ninja install-clang-resource-headers install-cxx install-cxxabi install-clang tools/clang/tools/extra/binder/install install-clang-headers  -j {self.install_cpus}",
+        ]:
+            # install-libc install-libcxx install-libcxxabi
+            print("Running command", command)
+            ret = subprocess.run(command.split(), cwd=self.build_dir)
+            if ret.returncode != 0:
+                raise RuntimeError("Error running llvm build command")
+
+    def _setup_ldconfig_path(self):
+        base_ldconfig_path = "/etc/ld.so.conf.d"
+        out_ld_fn = "libc2.conf"
+        Path(base_ldconfig_path).mkdir(exist_ok=True,parents=True)
+        with open(str(Path(base_ldconfig_path)/out_ld_fn), "w") as fh:
+            fh.write("/usr/local/lib/x86_64-unknown-linux-gnu")
+        command = "ldconfig"
+        print("Running command", command)
+        ret = subprocess.run([command], cwd=self.build_dir)
+        if ret.returncode != 0:
+            raise RuntimeError("Error running llvm build command")
+
+    def _prepare(self):
+        if not Path(self.binder_source_directory).is_dir():
+            raise RuntimeError(
+                "Cannot install llvm without binder, unable to find binder source at {self.binder_source_subdir}"
+            )
+        if not Path(self.base_source_directory).is_dir():
+            if self.version_or_source_location.source_location:
+                shutil.copytree(self.version_or_source_location.source_location, self.base_source_directory)
+            else:
+                download_command = f"git clone --depth 1 --branch {self.version_or_source_location.version} {self._git_remote} {self.base_source_directory}"
+                # download_command = f"git clone --depth 1 {self._git_remote} {self.base_source_directory}"
+                ret = subprocess.run(download_command.split())
+                if ret.returncode != 0:
+                    raise RuntimeError("Error downloading llvm")
+
+            shutil.copytree(self.binder_source_directory, self.binder_clang_tools_extra_subdir)
+            with open(self.clang_tools_extra_subdir_cmakelists, "a") as fh:
+                fh.write(f"\nadd_subdirectory({self._binder_clang_tools_extras_subdir})\n")
+
+    def _install(self) -> List[str]:
+        # 1. Run cmake and build the first time, use the system compiler.
+        self._run_llvm_cmake_base_command(self.compiler.cmake_extra_commands)
+        self._run_ninja_build_and_install_command()
+        self._setup_ldconfig_path()
+        # 2. Run cmake and build the second time, but this time use the clang
+        #    that we just built.  Do not use the clang C because it won't work
+        #    because you will fail with `Test LLVM_LIBSTDCXX_MIN - Failed`
+        self.build_dir = self.build_dir + "2"
+        # I'm not sure but i think it helps to use the clang after it's installed
+        # in the system.
+        # clangpp_bin = str((Path(self.build_bin_dir) / "clang++").resolve())
+        # clang_bin = str((Path(self.build_bin_dir) / "clang").resolve())
+        self._run_llvm_cmake_base_command(
+            CompileOptions.cmake_extra_commands_from_known_compiler_paths("clang", "clang++", self.compiler.build_mode)
+        )
+        self._run_ninja_build_and_install_command()
+        return ["LLVM_BIN_DIR={self.build_bin_dir}", "LLVM_VERSION={self.version}"]
+
+
+class Pybind11Installer(BaseInstaller):
+    _git_remote = "https://github.com/RosettaCommons/pybind11.git"
+
+    def __init__(
+        self, github_sha_or_source_location: VersionOrSourceLocation, base_source_directory: str = "/build/pybind11",
+    ):
+        self.github_sha_or_source_location = github_sha_or_source_location
+        self.base_source_directory = base_source_directory
+        self.include_dir = str(Path(self.base_source_directory) / "include")
+
+    def _prepare(self):
+        if not Path(self.include_dir).is_dir():
+            if self.github_sha_or_source_location.source_location:
+                shutil.copytree(self.github_sha_or_source_location.source_location, self.base_source_directory)
+            else:
+                Path(self.base_source_directory).mkdir(exist_ok=True, parents=True)
+                for command in [
+                    "git init",
+                    f"git remote add origin {self._git_remote}",
+                    f"git fetch --depth 1 origin {self.github_sha_or_source_location.version}",
+                    "git checkout FETCH_HEAD",
+                ]:
+                    print("Running command:", command)
+                    ret = subprocess.run(command.split(), cwd=self.base_source_directory)
+                    if ret.returncode != 0:
+                        raise RuntimeError("Error downloading pybind11")
+
+            if not Path(self.include_dir).exists():
+                raise RuntimeError(f"Error downloading pybind11, unable to find path {self.include_dir}")
+
+    def _install(self) -> List[str]:
+        # no install necessary
+        return [
+            f"PYBIND11_INCLUDE_DIR={self.include_dir}",
+            f"PYBIND11_SHA={self.github_sha_or_source_location.get_id()}",
+        ]
+
+
+def parse_args(args: List[str]):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-j', '--jobs', default=1, const=0, nargs="?", type=int, help="Number of processors to use on when building, use '-j' with no arguments to launch job-per-core. (default: 1) ")
-    parser.add_argument("--type", default='Release', choices=['Release', 'Debug', 'MinSizeRel', 'RelWithDebInfo'], help="Specify build type")
-    parser.add_argument('--compiler', default='clang', help='Compiler to use, defualt is clang')
-    parser.add_argument('--binder', default='', help='Path to Binder tool. If none is given then download, build and install binder into build/ directory. Use "--binder-debug" to control which mode of binder (debug/release) is used.')
-    parser.add_argument("--binder-debug", action="store_true", help="Run binder tool in debug mode (only relevant if no '--binder' option was specified)")
-    parser.add_argument('--pybind11', default='', help='Path to pybind11 source tree')
-    parser.add_argument('--annotate-includes', action="store_true", help='Annotate includes in generated source files')
-    parser.add_argument('--trace', action="store_true", help='Binder will add trace output to to generated source files')
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        default=1,
+        type=int,
+        help="Number of processors to use on when building, 0 = infer from # cpus on this computer (default: 1) ",
+    )
+    parser.add_argument(
+        "--build-mode", default="Release", choices=ALLOWED_BUILD_MODES, help="Specify build mode",
+    )
+    parser.add_argument(
+        "--compiler",
+        default="clang",
+        choices=tuple(KNOWN_COMPILERS.keys()),
+        help="Compiler to use for the INITIAL build. This is eventually replaced with the built clang",
+    )
+    parser.add_argument(
+        "--prepare-only",
+        action="store_true",
+        default=False,
+        help="Prepare to install binder, but don't actually try to install it.",
+    )
 
-    global Options
-    Options = parser.parse_args()
+    parser.add_argument("--build-path", required=True, help="Output directory to install binder, and it's dependencies")
 
-    source_path = os.path.abspath('.')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--pybind11-sha", default=SUPPORTED_PYBIND11_SHA, help=f"Path to pybind11 source tree.")
+    group.add_argument(
+        "--pybind11-source",
+        help="Path to pybind11 source tree, if none is given then it will download based on the default RosettaCommons sha",
+    )
 
-    if not Options.binder: Options.binder = install_llvm_tool('binder', source_path+'/source', source_path + '/build', Options.binder_debug, jobs=Options.jobs)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--llvm-source",
+        default="",
+        help="Path to llvm source tree, if none is given then it will download based on --llvm-version",
+    )
+    group.add_argument("--llvm-version", default=SUGGESTED_LLVM_RELEASE, help=f"llvm version to build with.")
 
-    if not Options.pybind11: Options.pybind11 = install_pybind11(source_path + '/build')
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--binder-source", default="", help="Path to binder source (not the dir 'source', the entire binder directory)"
+    )
+    group.add_argument(
+        "--binder-branch", default="", help=f"Binder branch to use. -- default to use is {SUGGESTED_BINDER_BRANCH}"
+    )
 
-    print( 'Binder binaries now ready at: {}\nPybind11 clone is ready at: {}'.format(Options.binder, Options.pybind11) )
+    parser.add_argument("--pybind11-git-url", help="git url for pybind11")
+    parser.add_argument("--binder-git-url", help="git url for binder")
+    parser.add_argument("--llvm-git-url", help="git url for llvm")
+
+    options = parser.parse_args(args)
+    if options.jobs == 0:
+        import multiprocessing
+
+        options.jobs = multiprocessing.cpu_count()
+    return options
+
+
+def main(args: argparse.Namespace):
+    """Binding demo build/test script"""
+    if args.pybind11_git_url:
+        Pybind11Installer._git_remote = args.pybind11_git_url
+    if args.binder_git_url:
+        MasterBinderInstaller._git_remote = args.binder_git_url
+    if args.llvm_git_url:
+        LLVMInstall._git_remote = args.llvm_git_url
+
+    pybind11_sha_or_source_location = VersionOrSourceLocation(args.pybind11_sha, args.pybind11_source)
+    llvm_version_or_source_location = VersionOrSourceLocation(args.llvm_version, args.llvm_source)
+    binder_branch_or_source_location = VersionOrSourceLocation(args.binder_branch, args.binder_source)
+    mbi = MasterBinderInstaller(
+        binder_branch_or_source_location,
+        llvm_version_or_source_location,
+        pybind11_sha_or_source_location,
+        args.build_path,
+        args.compiler,
+        args.build_mode,
+        install_cpus=args.jobs,
+    )
+    if args.prepare_only:
+        mbi.prepare()
+    else:
+        mbi.install()
 
 
 if __name__ == "__main__":
-    main(sys.argv)
+    main(parse_args(sys.argv[1:]))

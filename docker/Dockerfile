@@ -1,0 +1,35 @@
+FROM ubuntu:20.04 as base
+
+# General dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+	&& apt-get install -yq gnupg python3 python3-distutils python3-dev python3-pip ninja-build cmake git wget curl \
+	&& rm -rf /var/lib/apt/lists/*
+
+FROM BASE as PREPARED
+# Config
+ARG BINDER_BRANCH=""
+ARG LLVM_VERSION=""
+ARG PYBIND11_SHA=""
+
+COPY ./binder /binder
+COPY ./binder_build.py /binder/build.py
+
+# COPY git remote get-url origin
+RUN echo "\
+ \n\
+if [ -n \"$LLVM_VERSION\" ]; then BUILDCMDARGS=\" --llvm-version $LLVM_VERSION\"; else BUILDCMDARGS=\"\"; fi \n\
+if [ -n \"$PYBIND11_SHA\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS --pybind11-sha $PYBIND11_SHA\"; fi \n\
+if [ -n \"$BINDER_BRANCH\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS --binder-branch $BINDER_BRANCH\"; else BUILDCMDARGS=\"\$BUILDCMDARGS --binder-source /binder\"; fi \n\
+if [ -z \"\$INSTALL\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS --prepare-only\"; fi \n\
+if [ -n \"\$NCPUS\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS -j \$NCPUS\"; fi \n\
+ \n\
+python3 /binder/build.py --build-mode=Release --compiler gcc --build-path /build \$BUILDCMDARGS \n\
+" >/binder/prepare_and_install_cmd.sh
+
+RUN cat /binder/prepare_and_install_cmd.sh && bash /binder/prepare_and_install_cmd.sh
+
+FROM PREPARED AS FINAL
+ARG NCPUS=8
+RUN INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh && unset INSTALL NCPUS
+# If you want you should delete extra files here
