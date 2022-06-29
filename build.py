@@ -294,9 +294,14 @@ class LLVMInstall(BaseInstaller):
                 if ret.returncode != 0:
                     raise RuntimeError("Error downloading llvm")
 
+        if not Path(self.binder_clang_tools_extra_subdir).is_dir():
             shutil.copytree(self.binder_source_directory, self.binder_clang_tools_extra_subdir)
-            with open(self.clang_tools_extra_subdir_cmakelists, "a") as fh:
-                fh.write(f"\nadd_subdirectory({self._binder_clang_tools_extras_subdir})\n")
+            to_insert_text = f"\nadd_subdirectory({self._binder_clang_tools_extras_subdir})\n"
+            with open(self.clang_tools_extra_subdir_cmakelists) as fh:
+                text = fh.read()
+            if to_insert_text not in text:
+                with open(self.clang_tools_extra_subdir_cmakelists, "a") as fh:
+                    fh.write(to_insert_text)
 
     def _install(self) -> List[str]:
         # 1. Run cmake and build the first time, use the system compiler.
