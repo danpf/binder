@@ -12,8 +12,7 @@ ARG BINDER_BRANCH=""
 ARG LLVM_VERSION=""
 ARG PYBIND11_SHA=""
 
-COPY ./binder /binder
-COPY ./binder_build.py /binder/build.py
+COPY . /binder
 
 # COPY git remote get-url origin
 RUN echo "\
@@ -31,5 +30,5 @@ RUN cat /binder/prepare_and_install_cmd.sh && bash /binder/prepare_and_install_c
 
 FROM PREPARED AS FINAL
 ARG NCPUS=8
-RUN INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh && unset INSTALL NCPUS
+# RUN INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh && unset INSTALL NCPUS
 # If you want you should delete extra files here
