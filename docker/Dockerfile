@@ -6,7 +6,7 @@ RUN apt-get update \
 	&& apt-get install -yq gnupg python3 python3-distutils python3-dev python3-pip ninja-build cmake git wget curl \
 	&& rm -rf /var/lib/apt/lists/*
 
-FROM BASE as PREPARED
+FROM base as prepared
 # Config
 ARG BINDER_BRANCH=""
 ARG LLVM_VERSION=""
@@ -28,7 +28,7 @@ python3 /binder/build.py --build-mode=Release --compiler gcc --build-path /build
 
 RUN cat /binder/prepare_and_install_cmd.sh && bash /binder/prepare_and_install_cmd.sh
 
-FROM PREPARED AS FINAL
+FROM prepared AS final
 ARG NCPUS=8
 RUN INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh && unset INSTALL NCPUS
 # If you want you should delete extra files here
