@@ -1,6 +1,7 @@
 set(LLVM_LINK_COMPONENTS Option Support)
 
 add_clang_tool(binder
+  main.cpp
   binder.cpp
   class.cpp
   config.cpp
