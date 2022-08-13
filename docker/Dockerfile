@@ -13,11 +13,12 @@ ARG BINDER_BRANCH=""
 ARG LLVM_VERSION=""
 ARG PYBIND11_SHA=""
 
-COPY ./cmake /binder/
-COPY ./source /binder/
+COPY ./cmake /binder/cmake
+COPY ./source /binder/source
 COPY ./build.py /binder/
 COPY ./LICENSE /binder/
 COPY ./make_bindings_via_cmake.py /bin/
+RUN ls /binder
 
 # COPY git remote get-url origin
 RUN echo "\
@@ -39,5 +40,5 @@ RUN INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh && unset INST
 # If you want you should delete extra files here
 
 FROM final AS test
-COPY ./test/ /binder/
+COPY ./test /binder/test
 RUN python3 /binder/build.py --run-tests --build-path /build --binder-source /binder

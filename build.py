@@ -282,7 +282,7 @@ class LLVMInstall(BaseInstaller):
     def _prepare(self):
         if not Path(self.binder_source_directory).is_dir():
             raise RuntimeError(
-                "Cannot install llvm without binder, unable to find binder source at {self.binder_source_subdir}"
+                f"Cannot install llvm without binder, unable to find binder source at {self.binder_source_directory}"
             )
         if not Path(self.base_source_directory).is_dir():
             if self.version_or_source_location.source_location:
