@@ -56,7 +56,7 @@ vector<string> split(string const &buffer, string const &separator)
 
 
 /// Replace all occurrences of string
-void replace(string &r, string const &from, string const &to)
+void replace_reverse(string &r, string const &from, string const &to)
 {
 	size_t i = r.size();
 	while( (i = r.rfind(from, i)) != string::npos ) {
@@ -66,6 +66,14 @@ void replace(string &r, string const &from, string const &to)
 	}
 }
 
+void replace(string &r, string const &from, string const &to)
+{
+	std::string::size_type i = 0;
+	while( ( i = r.find(from, i) ) != std::string::npos ) {
+		r.replace(i, from.size(), to);
+		i += to.size();
+	}
+}
 
 /// Replace all occurrences of string and return result as new string
 string replace_(string const &s, string const &from, string const &to)
@@ -175,7 +183,7 @@ string last_namespace(string const &ns)
 // replace all _Bool types with bool
 void fix_boolean_types(string &type)
 {
-	string B("_Bool");
+	static string const B("_Bool");
 	size_t i = 0;
 	while( (i = type.find(B, i)) != string::npos ) {
 		if( (i == 0 or (!std::isalpha(type[i - 1]) and !std::isdigit(type[i - 1]))) and (i + B.size() == type.size() or (!std::isalpha(type[i + B.size()]) and !std::isdigit(type[i + B.size()]))) )

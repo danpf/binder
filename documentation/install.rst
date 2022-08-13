@@ -46,25 +46,14 @@ To *statically* compile binder, see :ref:`building-static`.
   mkdir $HOME/prefix && cd $HOME/prefix
 
   # Clone  LLVM
-  git clone http://llvm.org/git/llvm.git llvm && cd llvm
-  git checkout release_60
-
-  # Clone Clang
-  cd $HOME/prefix/llvm/tools
-  git clone http://llvm.org/git/clang.git clang
-  cd clang && git checkout release_60
-
-
-  # Clone Clang extra tools
-  cd $HOME/prefix/llvm/tools/clang/tools
-  git clone http://llvm.org/git/clang-tools-extra.git extra
-  cd extra && git checkout release_60
+  git clone https://github.com/llvm/llvm-project.git llvm && cd llvm
+  git checkout llvmorg-6.0.1
 
   # Create symlink pointing to binder/src dir
-  ln -s $HOME/binder/source $HOME/prefix/llvm/tools/clang/tools/extra/binder
+  ln -s $HOME/binder/source $HOME/prefix/llvm/clang-tools-extra/binder
 
   # Create ``llvm/tools/clang/tools/extra/CMakeLists.txt`` file with content: ``add_subdirectory(binder)``
-  echo 'add_subdirectory(binder)' > $HOME/prefix/llvm/tools/clang/tools/extra/CMakeLists.txt
+  echo 'add_subdirectory(binder)' > $HOME/prefix/llvm/clang-tools-extra/CMakeLists.txt
 
   # Build Binder
   mkdir $HOME/prefix/build && cd $HOME/prefix/build
