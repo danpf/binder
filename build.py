@@ -145,6 +145,7 @@ class MasterBinderInstaller(BaseInstaller):
         build_dir: str,
         _compiler: str,
         build_mode: str,
+        build_with_ccache: bool,
         install_cpus: int,
     ):
         self.llvm_version_or_source_location = llvm_version_or_source_location
@@ -166,6 +167,7 @@ class MasterBinderInstaller(BaseInstaller):
             self.compiler,
             binder_source_directory,
             base_source_directory=str(Path(self.build_dir) / "llvm-project"),
+            build_with_ccache=build_with_ccache,
             install_cpus=self.install_cpus,
         )
         self.pybind11_installer = Pybind11Installer(pybind11_sha_or_source_location, str(Path(build_dir) / "pybind11"))
@@ -224,6 +226,7 @@ class LLVMInstall(BaseInstaller):
         binder_source_directory: str,
         base_source_directory: str = "/build/llvm-project",
         build_subdir: str = "build",
+        build_with_ccache: bool = False,
         install_cpus: int = 8,
 
     ):
@@ -233,6 +236,7 @@ class LLVMInstall(BaseInstaller):
         self.build_subdir = build_subdir
         self.compiler = _compiler
         self.install_cpus = install_cpus
+        self.build_with_ccache = build_with_ccache
 
         basedir = Path(self.base_source_directory)
         self.build_dir = str(Path(self.base_source_directory) / build_subdir)
@@ -305,6 +309,12 @@ class LLVMInstall(BaseInstaller):
 
     def _install(self) -> List[str]:
         # 1. Run cmake and build the first time, use the system compiler.
+        extra_compile_commands = self.compiler.cmake_extra_commands
+        if self.build_with_ccache:
+            extra_compile_commands = (
+                f"{extra_compile_commands} -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+            )
+
         self._run_llvm_cmake_base_command(self.compiler.cmake_extra_commands)
         self._run_ninja_build_and_install_command()
         self._setup_ldconfig_path()
@@ -417,6 +427,7 @@ def parse_args(args: List[str]):
     parser.add_argument("--llvm-git-url", help="git url for llvm")
 
     parser.add_argument("--run-tests", help="run-tests")
+    parser.add_argument("--build-with-ccache", help="build with ccache", action="store_true")
 
     options = parser.parse_args(args)
     if options.jobs == 0:
@@ -454,6 +465,7 @@ def main(args: argparse.Namespace):
         pybind11_sha_or_source_location,
         args.build_path,
         args.compiler,
+        args.build_with_ccache,
         args.build_mode,
         install_cpus=args.jobs,
     )

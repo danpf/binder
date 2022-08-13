@@ -3,7 +3,7 @@ FROM ubuntu:20.04 as base
 # General dependencies
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
-	&& apt-get install -yq gnupg python3 python3-distutils python3-dev python3-pip ninja-build cmake git wget curl \
+	&& apt-get install -yq gnupg python3 python3-distutils python3-dev python3-pip ninja-build cmake git wget curl ccache \
 	&& rm -rf /var/lib/apt/lists/* \
   && mkdir /binder
 
@@ -12,13 +12,13 @@ FROM base as prepared
 ARG BINDER_BRANCH=""
 ARG LLVM_VERSION=""
 ARG PYBIND11_SHA=""
+ARG BUILD_WITH_CCACHE=""
 
 COPY ./cmake /binder/cmake
 COPY ./source /binder/source
 COPY ./build.py /binder/
 COPY ./LICENSE /binder/
 COPY ./make_bindings_via_cmake.py /bin/
-RUN ls /binder
 
 # COPY git remote get-url origin
 RUN echo "\
@@ -26,6 +26,7 @@ RUN echo "\
 if [ -n \"$LLVM_VERSION\" ]; then BUILDCMDARGS=\" --llvm-version $LLVM_VERSION\"; else BUILDCMDARGS=\"\"; fi \n\
 if [ -n \"$PYBIND11_SHA\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS --pybind11-sha $PYBIND11_SHA\"; fi \n\
 if [ -n \"$BINDER_BRANCH\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS --binder-branch $BINDER_BRANCH\"; else BUILDCMDARGS=\"\$BUILDCMDARGS --binder-source /binder\"; fi \n\
+if [ -n \"$BUILD_WITH_CCACHE\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS --build-with-ccache \"; fi \n\
 if [ -z \"\$INSTALL\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS --prepare-only\"; fi \n\
 if [ -n \"\$NCPUS\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS -j \$NCPUS\"; fi \n\
  \n\
