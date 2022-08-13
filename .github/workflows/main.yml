@@ -8,6 +8,7 @@ jobs:
   compilejobUbuntu:
     runs-on: ubuntu-latest
     name: Binder_on_Ubuntu
+    timeout-minutes: 1320
     steps:
     - name: Checkout
       uses: actions/checkout@v2
