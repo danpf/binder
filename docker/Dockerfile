@@ -4,7 +4,8 @@ FROM ubuntu:20.04 as base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
 	&& apt-get install -yq gnupg python3 python3-distutils python3-dev python3-pip ninja-build cmake git wget curl \
-	&& rm -rf /var/lib/apt/lists/*
+	&& rm -rf /var/lib/apt/lists/* \
+  && mkdir /binder
 
 FROM base as prepared
 # Config
@@ -12,7 +13,11 @@ ARG BINDER_BRANCH=""
 ARG LLVM_VERSION=""
 ARG PYBIND11_SHA=""
 
-COPY . /binder
+COPY ./cmake /binder/
+COPY ./source /binder/
+COPY ./build.py /binder/
+COPY ./LICENSE /binder/
+COPY ./make_bindings_via_cmake.py /bin/
 
 # COPY git remote get-url origin
 RUN echo "\
@@ -32,3 +37,7 @@ FROM prepared AS final
 ARG NCPUS=8
 RUN INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh && unset INSTALL NCPUS
 # If you want you should delete extra files here
+
+FROM final AS test
+COPY ./test/ /binder/
+RUN python3 /binder/build.py --run-tests --build-path /build --binder-source /binder

@@ -416,12 +416,20 @@ def parse_args(args: List[str]):
     parser.add_argument("--binder-git-url", help="git url for binder")
     parser.add_argument("--llvm-git-url", help="git url for llvm")
 
+    parser.add_argument("--run-tests", help="run-tests")
+
     options = parser.parse_args(args)
     if options.jobs == 0:
         import multiprocessing
 
         options.jobs = multiprocessing.cpu_count()
     return options
+
+
+def run_tests():
+    subprocess.run(["cmake", "."], cwd="/binder/test")
+    subprocess.run(["make", "-j", "10"], cwd="/binder/test")
+    subprocess.run(["ctest", ".", "--output-on-failure"], cwd="/binder/test")
 
 
 def main(args: argparse.Namespace):
@@ -432,6 +440,10 @@ def main(args: argparse.Namespace):
         MasterBinderInstaller._git_remote = args.binder_git_url
     if args.llvm_git_url:
         LLVMInstall._git_remote = args.llvm_git_url
+
+    if args.run_tests:
+        run_tests()
+        return
 
     pybind11_sha_or_source_location = VersionOrSourceLocation(args.pybind11_sha, args.pybind11_source)
     llvm_version_or_source_location = VersionOrSourceLocation(args.llvm_version, args.llvm_source)

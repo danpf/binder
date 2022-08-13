@@ -1,8 +1,14 @@
-if("0" STREQUAL ${BINDER_TEST_PYTHON_VERSIONS})
-  message(STATUS "binder: Only comparisons of produced outputs to the reference outputs will be performed.")
+cmake_minimum_required(VERSION 3.16)
+
+if (BINDER_PYBIND11_DIR)
+  add_subdirectory(BINDER_PYBIND11_DIR)
 else()
   find_package(pybind11 CONFIG REQUIRED)
-  message(STATUS "Found pybind11 v${pybind11_VERSION}: ${pybind11_INCLUDE_DIRS}   and ${pybind11_INCLUDE_DIR}")
+  message(STATUS "Found pybind11 v${pybind11_VERSION}: ${pybind11_INCLUDE_DIRS} and ${pybind11_INCLUDE_DIR}")
+endif()
+
+if (NOT DEFINED BINDER_TEST_PYTHON_VERSIONS)
+  set(BINDER_TEST_PYTHON_VERSIONS "3")
 endif()
 
 macro( binder_src stestname)
@@ -21,16 +27,16 @@ else()
     ADD_CUSTOM_TARGET(target${stestnamenodot}cpp
     #The first two expressions below are for older clang
     COMMAND C_INCLUDE_PATH=${LibClang_INCLUDE_DIR}:/Library/Developer/CommandLineTools/usr/include/c++/v1/  CPLUS_INCLUDE_PATH=${LibClang_INCLUDE_DIR}:/Library/Developer/CommandLineTools/usr/include/c++/v1/
-      ${CMAKE_BINARY_DIR}/source/binder --bind ""  -max-file-size=100000
+      binder --bind ""  -max-file-size=100000
       --root-module ${stestnamenodot} --prefix ${CMAKE_CURRENT_BINARY_DIR}/ ${${stestname}_config_flag} --single-file  --annotate-includes  ${CMAKE_CURRENT_BINARY_DIR}/${stestname}.hpp.include  
-      -- -x c++ -std=c++11   -I . -I ${CMAKE_CURRENT_SOURCE_DIR}  -isystem /  -I ${CLANG_INCLUDE_DIRS}   -iwithsysroot${LibClang_INCLUDE_DIR}
+      -- -x c++ -std=c++11   -I . -I ${CMAKE_CURRENT_SOURCE_DIR} -I${CMAKE_CURRENT_SOURCE_DIR}/../ -I${CMAKE_CURRENT_SOURCE_DIR}/../source -isystem /  -I ${CLANG_INCLUDE_DIRS}   -iwithsysroot${LibClang_INCLUDE_DIR}
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" VERBATIM)
   else()
     ADD_CUSTOM_TARGET(target${stestnamenodot}cpp
     #The first two expressions below are for older clang
-    COMMAND C_INCLUDE_PATH=${LibClang_INCLUDE_DIR}   CPLUS_INCLUDE_PATH=${LibClang_INCLUDE_DIR}  ${CMAKE_BINARY_DIR}/source/binder --bind ""  -max-file-size=100000
+    COMMAND C_INCLUDE_PATH=${LibClang_INCLUDE_DIR}   CPLUS_INCLUDE_PATH=${LibClang_INCLUDE_DIR}  binder --bind ""  -max-file-size=100000
       --root-module ${stestnamenodot} --prefix ${CMAKE_CURRENT_BINARY_DIR}/ ${${stestname}_config_flag} --single-file  --annotate-includes  ${CMAKE_CURRENT_BINARY_DIR}/${stestname}.hpp.include  
-      -- -x c++ -std=c++11   -I . -I ${CMAKE_CURRENT_SOURCE_DIR}  -isystem /  -I ${CLANG_INCLUDE_DIRS}   -iwithsysroot${LibClang_INCLUDE_DIR}
+      -- -x c++ -std=c++11   -I . -I${CMAKE_CURRENT_SOURCE_DIR} -I${CMAKE_CURRENT_SOURCE_DIR}/../ -I${CMAKE_CURRENT_SOURCE_DIR}/../source -isystem /  -I ${CLANG_INCLUDE_DIRS}   -iwithsysroot${LibClang_INCLUDE_DIR}
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" VERBATIM)
   endif()
 endif()
@@ -105,14 +111,8 @@ set( binder_tests
          T42.stl.names.multimap
          T42.stl.names.multiset
          T50.namespace_binder
-         )
-if (pybind11_VERSION VERSION_LESS 2.5.99)
- message(STATUS "pybind11 version ${pybind11_VERSION} is less than 2.5.99. Some tests will be disabled." )
- list(REMOVE_ITEM binder_tests T09.overload)
- list(REMOVE_ITEM binder_tests T10.inheritance)
- list(REMOVE_ITEM binder_tests T11.override)
- list(REMOVE_ITEM binder_tests T15.inner_class)
-endif()
+ )
+
 if( CMAKE_HOST_SYSTEM_NAME MATCHES "Darwin" )
  list(REMOVE_ITEM binder_tests T42.stl.names.multimap)
  list(REMOVE_ITEM binder_tests T42.stl.names.multiset)

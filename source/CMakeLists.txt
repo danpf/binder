@@ -13,7 +13,7 @@ add_clang_tool(binder
   util.cpp
   fmt/format.cc
   fmt/os.cc
-  )
+)
 
 clang_target_link_libraries(binder
 	PRIVATE
