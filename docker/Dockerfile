@@ -50,4 +50,4 @@ RUN cat /binder/prepare_and_install_cmd.sh && INSTALL=y NCPUS=$NCPUS bash /binde
 
 FROM final AS test
 COPY ./test /binder/test
-RUN python3 /binder/build.py --run-tests xx --build-path /build --binder-source /binder
+RUN python3 /binder/build.py --run-tests --build-path /build --binder-source /binder
