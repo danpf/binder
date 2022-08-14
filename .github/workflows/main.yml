@@ -29,45 +29,45 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-build-${{ env.cache-name }}-
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-
     - name: Build-01
-      uses: docker/build-push-action@v3
+      uses: redhat-actions/buildah-build@v2
       with:
-        target: incremental-01
-        push: false
-        file: docker/Dockerfile
+        containerfiles: docker/Dockerfile
         build-args: |
           NCPUS=4
+        extra-args: |
+          -v ./docker/ccache:/home/root/.ccache
+          --target incremental-01
 
     - name: Build-02
-      uses: docker/build-push-action@v3
-      timeout-minutes: 1000
+      uses: redhat-actions/buildah-build@v2
       with:
-        target: incremental-02
-        push: false
-        file: docker/Dockerfile
+        containerfiles: docker/Dockerfile
         build-args: |
           NCPUS=4
+        extra-args: |
+          -v ./docker/ccache:/home/root/.ccache
+          --target incremental-02
 
     - name: Build-03
-      uses: docker/build-push-action@v3
+      uses: redhat-actions/buildah-build@v2
       with:
-        target: final
-        push: false
-        file: docker/Dockerfile
+        containerfiles: docker/Dockerfile
         build-args: |
           NCPUS=4
+        extra-args: |
+          -v ./docker/ccache:/home/root/.ccache
+          --target final
 
     - name: Build-test
-      uses: docker/build-push-action@v3
+      uses: redhat-actions/buildah-build@v2
       with:
-        target: test
-        push: false
-        file: docker/Dockerfile
+        containerfiles: docker/Dockerfile
         build-args: |
           NCPUS=4
+        extra-args: |
+          -v ./docker/ccache:/home/root/.ccache
+          --target test
 
   compilejobFedora35:
     runs-on: ubuntu-latest
