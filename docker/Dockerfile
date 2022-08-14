@@ -31,14 +31,22 @@ if [ -n \"$BUILD_WITH_CCACHE\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS --build-wit
 if [ -z \"\$INSTALL\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS --prepare-only\"; fi \n\
 if [ -n \"\$NCPUS\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS -j \$NCPUS\"; fi \n\
  \n\
-python3 /binder/build.py --build-mode=Release --compiler gcc --build-path /build \$BUILDCMDARGS \n\
+python3 /binder/build.py --build-mode=Release --compiler gcc --build-path /build \$BUILDCMDARGS \$@ \n\
 " >/binder/prepare_and_install_cmd.sh
 
+FROM base as incremental-01
 RUN cat /binder/prepare_and_install_cmd.sh && bash /binder/prepare_and_install_cmd.sh
 
-FROM prepared AS final
+FROM incremental-01 as incremental-02
 ARG NCPUS=8
-RUN INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh && unset INSTALL NCPUS
+RUN cat /binder/prepare_and_install_cmd.sh && INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh --build-stages 1 && unset INSTALL NCPUS
+
+FROM incremental-02 as final
+ARG NCPUS=8
+RUN cat /binder/prepare_and_install_cmd.sh && INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh --build-stages 2 && unset INSTALL NCPUS
+
+# FROM prepared AS final
+# RUN INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh && unset INSTALL NCPUS
 # If you want you should delete extra files here
 
 FROM final AS test

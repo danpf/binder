@@ -152,6 +152,7 @@ class MasterBinderInstaller(BaseInstaller):
         build_dir: str,
         _compiler: str,
         build_mode: str,
+        build_stages: List[int],
         build_with_ccache: bool,
         install_cpus: int,
     ):
@@ -161,6 +162,7 @@ class MasterBinderInstaller(BaseInstaller):
         self.compiler = CompileOptions(_compiler, build_mode, build_with_ccache)
         self.build_dir = build_dir
         self.install_cpus = install_cpus
+        self.build_stages = build_stages
         self.build_with_ccache = build_with_ccache
 
         self.binder_download_dir = str(Path(self.build_dir) / "binder")
@@ -174,6 +176,7 @@ class MasterBinderInstaller(BaseInstaller):
             llvm_version_or_source_location,
             self.compiler,
             binder_source_directory,
+            build_stages=self.build_stages,
             base_source_directory=str(Path(self.build_dir) / "llvm-project"),
             build_with_ccache=build_with_ccache,
             install_cpus=self.install_cpus,
@@ -232,6 +235,7 @@ class LLVMInstall(BaseInstaller):
         version_or_source_location: VersionOrSourceLocation,
         _compiler: CompileOptions,
         binder_source_directory: str,
+        build_stages: List[int],
         base_source_directory: str = "/build/llvm-project",
         build_subdir: str = "build",
         build_with_ccache: bool = False,
@@ -240,6 +244,7 @@ class LLVMInstall(BaseInstaller):
         self.version_or_source_location = version_or_source_location
         self.base_source_directory = base_source_directory
         self.binder_source_directory = binder_source_directory
+        self.build_stages = build_stages
         self.build_subdir = build_subdir
         self.compiler = _compiler
         self.install_cpus = install_cpus
@@ -315,22 +320,24 @@ class LLVMInstall(BaseInstaller):
                     fh.write(to_insert_text)
 
     def _install(self) -> List[str]:
-        # 1. Run cmake and build the first time, use the system compiler.
-        self._run_llvm_cmake_base_command(self.compiler.cmake_extra_commands)
-        self._run_ninja_build_and_install_command()
-        self._setup_ldconfig_path()
-        # 2. Run cmake and build the second time, but this time use the clang
-        #    that we just built.  Do not use the clang C because it won't work
-        #    because you will fail with `Test LLVM_LIBSTDCXX_MIN - Failed`
-        self.build_dir = self.build_dir + "2"
-        # I'm not sure but i think it helps to use the clang after it's installed
-        # in the system.
-        # clangpp_bin = str((Path(self.build_bin_dir) / "clang++").resolve())
-        # clang_bin = str((Path(self.build_bin_dir) / "clang").resolve())
-        self._run_llvm_cmake_base_command(
-            CompileOptions.cmake_extra_commands_from_known_compiler_paths("clang", "clang++", self.compiler.build_mode, self.build_with_ccache)
-        )
-        self._run_ninja_build_and_install_command()
+        if 1 in self.build_stages:
+            # 1. Run cmake and build the first time, use the system compiler.
+            self._run_llvm_cmake_base_command(self.compiler.cmake_extra_commands)
+            self._run_ninja_build_and_install_command()
+            self._setup_ldconfig_path()
+        if 2 in self.build_stages:
+            # 2. Run cmake and build the second time, but this time use the clang
+            #    that we just built.  Do not use the clang C because it won't work
+            #    because you will fail with `Test LLVM_LIBSTDCXX_MIN - Failed`
+            self.build_dir = self.build_dir + "2"
+            # I'm not sure but i think it helps to use the clang after it's installed
+            # in the system.
+            # clangpp_bin = str((Path(self.build_bin_dir) / "clang++").resolve())
+            # clang_bin = str((Path(self.build_bin_dir) / "clang").resolve())
+            self._run_llvm_cmake_base_command(
+                CompileOptions.cmake_extra_commands_from_known_compiler_paths("clang", "clang++", self.compiler.build_mode, self.build_with_ccache)
+            )
+            self._run_ninja_build_and_install_command()
         return ["LLVM_BIN_DIR={self.build_bin_dir}", "LLVM_VERSION={self.version}"]
 
 
@@ -432,6 +439,8 @@ def parse_args(args: List[str]):
     parser.add_argument("--binder-git-url", help="git url for binder")
     parser.add_argument("--llvm-git-url", help="git url for llvm")
 
+    parser.add_argument("--build-stages", choices=["1", "2"], nargs="+", help="build stages 1, 2, or both 1 and 2", default=[1, 2], type=int)
+
     parser.add_argument("--run-tests", help="run-tests", action="store_true")
     parser.add_argument("--build-with-ccache", help="build with ccache", action="store_true")
 
@@ -472,6 +481,7 @@ def main(args: argparse.Namespace):
         build_dir=args.build_path,
         _compiler=args.compiler,
         build_mode=args.build_mode,
+        build_stages=args.build_stages,
         build_with_ccache=args.build_with_ccache,
         install_cpus=args.jobs,
     )
