@@ -19,7 +19,6 @@ COPY ./source /binder/source
 COPY ./build.py /binder/
 COPY ./LICENSE /binder/
 COPY ./make_bindings_via_cmake.py /bin/
-COPY docker/ccache* /home/root/.ccache
 
 # COPY git remote get-url origin
 RUN echo "\
@@ -34,7 +33,7 @@ if [ -n \"\$NCPUS\" ]; then BUILDCMDARGS=\"\$BUILDCMDARGS -j \$NCPUS\"; fi \n\
 python3 /binder/build.py --build-mode=Release --compiler gcc --build-path /build \$BUILDCMDARGS \$@ \n\
 " >/binder/prepare_and_install_cmd.sh
 
-FROM base as incremental-01
+FROM prepared as incremental-01
 RUN cat /binder/prepare_and_install_cmd.sh && bash /binder/prepare_and_install_cmd.sh
 
 FROM incremental-01 as incremental-02
