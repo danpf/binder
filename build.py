@@ -439,7 +439,7 @@ def parse_args(args: List[str]):
     parser.add_argument("--binder-git-url", help="git url for binder")
     parser.add_argument("--llvm-git-url", help="git url for llvm")
 
-    parser.add_argument("--build-stages", choices=["1", "2"], nargs="+", help="build stages 1, 2, or both 1 and 2", default=[1, 2], type=int)
+    parser.add_argument("--build-stages", choices=[1, 2], nargs="+", help="build stages 1, 2, or both 1 and 2", default=[1, 2], type=int)
 
     parser.add_argument("--run-tests", help="run-tests", action="store_true")
     parser.add_argument("--build-with-ccache", help="build with ccache", action="store_true")
