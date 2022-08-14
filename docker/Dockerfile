@@ -19,6 +19,7 @@ COPY ./source /binder/source
 COPY ./build.py /binder/
 COPY ./LICENSE /binder/
 COPY ./make_bindings_via_cmake.py /bin/
+COPY docker/ccache* /home/root/.ccache
 
 # COPY git remote get-url origin
 RUN echo "\
@@ -42,4 +43,4 @@ RUN INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh && unset INST
 
 FROM final AS test
 COPY ./test /binder/test
-RUN python3 /binder/build.py --run-tests --build-path /build --binder-source /binder
+RUN python3 /binder/build.py --run-tests xx --build-path /build --binder-source /binder

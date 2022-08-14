@@ -21,11 +21,16 @@ jobs:
 
     - name: ccache cache files
       uses: actions/cache@v3
+      env:
+        cache-name: cache-ccache
       with:
-      path: .ccache
-      key: ubuntu-ccache-${ { steps.ccache_cache_timestamp.outputs.timestamp } }
-      restore-keys: |
-        ubuntu-ccache-
+        path: ${{ github.workspace }}/cache
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${ { steps.ccache_cache_timestamp.outputs.timestamp } }
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-
+
+    - name: Checkout
+      run: pwd && ls && ls ${{ github.workspace }}/cache
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2

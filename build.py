@@ -45,11 +45,12 @@ class CompileOptions:
     _cmake_cc_compiler_template = "-DCMAKE_C_COMPILER={}"
     _cmake_cxx_compiler_template = "-DCMAKE_CXX_COMPILER={}"
     _cmake_build_mode_compiler_template = "-DCMAKE_BUILD_TYPE={}"
+    _cmake_ccache_on = "-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
 
     _allowed_build_modes = ALLOWED_BUILD_MODES
     _compiler_map = KNOWN_COMPILERS
 
-    def __init__(self, compiler: str, build_mode: str):
+    def __init__(self, compiler: str, build_mode: str, build_with_ccache: bool):
         if build_mode not in self._allowed_build_modes:
             raise RuntimeError(f"Build mode {build_mode} not supported, we support {self._allowed_build_modes}")
         self.build_mode = build_mode
@@ -57,12 +58,16 @@ class CompileOptions:
             raise RuntimeError(f"Compiler {compiler} not supported, we support {self._compiler_map.keys()}")
         self.compiler = compiler
         self.cc, self.cpp = self._compiler_map[compiler]
+        self.build_with_ccache = build_with_ccache
+
         self.cmake_extra_commands = self.cmake_extra_commands_from_known_compiler_paths(
-            full_cc=self.cc, full_cpp=self.cpp, build_mode=self.build_mode
+            full_cc=self.cc, full_cpp=self.cpp, build_mode=self.build_mode, build_with_ccache=self.build_with_ccache
         )
 
     @classmethod
-    def cmake_extra_commands_from_known_compiler_paths(cls, full_cc: str, full_cpp: str, build_mode: str) -> str:
+    def cmake_extra_commands_from_known_compiler_paths(
+        cls, full_cc: str, full_cpp: str, build_mode: str, build_with_ccache: bool
+    ) -> str:
         out = []
         if full_cc:
             out.append(cls._cmake_cc_compiler_template.format(full_cc))
@@ -70,6 +75,8 @@ class CompileOptions:
             out.append(cls._cmake_cxx_compiler_template.format(full_cpp))
         if build_mode:
             out.append(cls._cmake_build_mode_compiler_template.format(build_mode))
+        if build_with_ccache:
+            out.append(cls._cmake_ccache_on)
         return " ".join(out)
 
 
@@ -151,9 +158,10 @@ class MasterBinderInstaller(BaseInstaller):
         self.llvm_version_or_source_location = llvm_version_or_source_location
         self.pybind11_sha_or_source_location = pybind11_sha_or_source_location
         self.binder_branch_or_source_location = binder_branch_or_source_location
-        self.compiler = CompileOptions(_compiler, build_mode)
+        self.compiler = CompileOptions(_compiler, build_mode, build_with_ccache)
         self.build_dir = build_dir
         self.install_cpus = install_cpus
+        self.build_with_ccache = build_with_ccache
 
         self.binder_download_dir = str(Path(self.build_dir) / "binder")
         binder_source_directory = (
@@ -228,7 +236,6 @@ class LLVMInstall(BaseInstaller):
         build_subdir: str = "build",
         build_with_ccache: bool = False,
         install_cpus: int = 8,
-
     ):
         self.version_or_source_location = version_or_source_location
         self.base_source_directory = base_source_directory
@@ -255,7 +262,7 @@ class LLVMInstall(BaseInstaller):
             f" {cmake_extra_commands}"
             f" -DLLVM_ENABLE_LIBCXX=ON -DLLVM_INCLUDE_TESTS=OFF -DLLVM_ENABLE_RUNTIMES='libc;libcxx;libcxxabi' -DLLVM_ENABLE_PROJECTS='clang-tools-extra;clang' -DLLVM_ENABLE_EH=1 -DLLVM_ENABLE_RTTI=ON"
         )
-        print("Running command", command)
+        print("Running command", command, flush=True)
         ret = subprocess.run(command.split(), cwd=self.base_source_directory)
         if ret.returncode != 0:
             raise RuntimeError("Error running llvm cmake init command")
@@ -266,7 +273,7 @@ class LLVMInstall(BaseInstaller):
             f"ninja install-clang-resource-headers install-cxx install-cxxabi install-clang tools/clang/tools/extra/binder/install install-clang-headers  -j {self.install_cpus}",
         ]:
             # install-libc install-libcxx install-libcxxabi
-            print("Running command", command)
+            print("Running command", command, flush=True)
             ret = subprocess.run(command.split(), cwd=self.build_dir)
             if ret.returncode != 0:
                 raise RuntimeError("Error running llvm build command")
@@ -274,11 +281,11 @@ class LLVMInstall(BaseInstaller):
     def _setup_ldconfig_path(self):
         base_ldconfig_path = "/etc/ld.so.conf.d"
         out_ld_fn = "libc2.conf"
-        Path(base_ldconfig_path).mkdir(exist_ok=True,parents=True)
-        with open(str(Path(base_ldconfig_path)/out_ld_fn), "w") as fh:
+        Path(base_ldconfig_path).mkdir(exist_ok=True, parents=True)
+        with open(str(Path(base_ldconfig_path) / out_ld_fn), "w") as fh:
             fh.write("/usr/local/lib/x86_64-unknown-linux-gnu")
         command = "ldconfig"
-        print("Running command", command)
+        print("Running command", command, flush=True)
         ret = subprocess.run([command], cwd=self.build_dir)
         if ret.returncode != 0:
             raise RuntimeError("Error running llvm build command")
@@ -309,12 +316,6 @@ class LLVMInstall(BaseInstaller):
 
     def _install(self) -> List[str]:
         # 1. Run cmake and build the first time, use the system compiler.
-        extra_compile_commands = self.compiler.cmake_extra_commands
-        if self.build_with_ccache:
-            extra_compile_commands = (
-                f"{extra_compile_commands} -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
-            )
-
         self._run_llvm_cmake_base_command(self.compiler.cmake_extra_commands)
         self._run_ninja_build_and_install_command()
         self._setup_ldconfig_path()
@@ -327,7 +328,7 @@ class LLVMInstall(BaseInstaller):
         # clangpp_bin = str((Path(self.build_bin_dir) / "clang++").resolve())
         # clang_bin = str((Path(self.build_bin_dir) / "clang").resolve())
         self._run_llvm_cmake_base_command(
-            CompileOptions.cmake_extra_commands_from_known_compiler_paths("clang", "clang++", self.compiler.build_mode)
+            CompileOptions.cmake_extra_commands_from_known_compiler_paths("clang", "clang++", self.compiler.build_mode, self.build_with_ccache)
         )
         self._run_ninja_build_and_install_command()
         return ["LLVM_BIN_DIR={self.build_bin_dir}", "LLVM_VERSION={self.version}"]
@@ -337,7 +338,9 @@ class Pybind11Installer(BaseInstaller):
     _git_remote = "https://github.com/RosettaCommons/pybind11.git"
 
     def __init__(
-        self, github_sha_or_source_location: VersionOrSourceLocation, base_source_directory: str = "/build/pybind11",
+        self,
+        github_sha_or_source_location: VersionOrSourceLocation,
+        base_source_directory: str = "/build/pybind11",
     ):
         self.github_sha_or_source_location = github_sha_or_source_location
         self.base_source_directory = base_source_directory
@@ -355,7 +358,7 @@ class Pybind11Installer(BaseInstaller):
                     f"git fetch --depth 1 origin {self.github_sha_or_source_location.version}",
                     "git checkout FETCH_HEAD",
                 ]:
-                    print("Running command:", command)
+                    print("Running command:", command, flush=True)
                     ret = subprocess.run(command.split(), cwd=self.base_source_directory)
                     if ret.returncode != 0:
                         raise RuntimeError("Error downloading pybind11")
@@ -382,7 +385,10 @@ def parse_args(args: List[str]):
         help="Number of processors to use on when building, 0 = infer from # cpus on this computer (default: 1) ",
     )
     parser.add_argument(
-        "--build-mode", default="Release", choices=ALLOWED_BUILD_MODES, help="Specify build mode",
+        "--build-mode",
+        default="Release",
+        choices=ALLOWED_BUILD_MODES,
+        help="Specify build mode",
     )
     parser.add_argument(
         "--compiler",
@@ -426,7 +432,7 @@ def parse_args(args: List[str]):
     parser.add_argument("--binder-git-url", help="git url for binder")
     parser.add_argument("--llvm-git-url", help="git url for llvm")
 
-    parser.add_argument("--run-tests", help="run-tests")
+    parser.add_argument("--run-tests", help="run-tests", action="store_true")
     parser.add_argument("--build-with-ccache", help="build with ccache", action="store_true")
 
     options = parser.parse_args(args)
@@ -463,10 +469,10 @@ def main(args: argparse.Namespace):
         binder_branch_or_source_location,
         llvm_version_or_source_location,
         pybind11_sha_or_source_location,
-        args.build_path,
-        args.compiler,
-        args.build_with_ccache,
-        args.build_mode,
+        build_dir=args.build_path,
+        _compiler=args.compiler,
+        build_mode=args.build_mode,
+        build_with_ccache=args.build_with_ccache,
         install_cpus=args.jobs,
     )
     if args.prepare_only:
