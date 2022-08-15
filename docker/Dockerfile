@@ -18,7 +18,6 @@ COPY ./cmake /binder/cmake
 COPY ./source /binder/source
 COPY ./build.py /binder/
 COPY ./LICENSE /binder/
-COPY ./make_bindings_via_cmake.py /bin/
 
 # COPY git remote get-url origin
 RUN echo "\
@@ -43,6 +42,7 @@ RUN cat /binder/prepare_and_install_cmd.sh && INSTALL=y NCPUS=$NCPUS bash /binde
 FROM incremental-02 as final
 ARG NCPUS=8
 RUN cat /binder/prepare_and_install_cmd.sh && INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh --build-stages 2 && unset INSTALL NCPUS
+COPY ./make_bindings_via_cmake.py /bin/
 
 # FROM prepared AS final
 # RUN INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh && unset INSTALL NCPUS
