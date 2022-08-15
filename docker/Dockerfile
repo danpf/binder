@@ -51,5 +51,6 @@ COPY ./make_bindings_via_cmake.py /bin/
 FROM final AS test
 COPY ./test /binder/test
 RUN python3 /binder/build.py --run-tests --build-path /build --binder-source /binder
-RUN cd examples \
-  && make_bindings_via_cmake.py dbuild --output-directory bindings --module-name myexample --project-source ./example_struct/include --config-file ./example_struct/config.cfg
+COPY ./examples /home/root/examples
+RUN cd /home/root/examples \
+  && make_bindings_via_cmake.py lbuild --output-directory bindings --module-name myexample --project-source ./example_struct/include --config-file ./example_struct/config.cfg --pybind11-source /build/pybind11
