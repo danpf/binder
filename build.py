@@ -380,7 +380,7 @@ class Pybind11Installer(BaseInstaller):
         for cwd_dir, command in [
             (
                 self.base_source_directory,
-                f"cmake -S -B {self.build_directory} -DPYBIND11_INSTALL=ON -DPYBIND11_TEST=OFF -G Ninja",
+                f"cmake -S . -B {self.build_directory} -DPYBIND11_INSTALL=ON -DPYBIND11_TEST=OFF -G Ninja",
             ),
             (self.build_directory, "ninja install"),
         ]:
