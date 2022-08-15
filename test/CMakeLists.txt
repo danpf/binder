@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
+ENABLE_TESTING()
+
 if (BINDER_PYBIND11_DIR)
   add_subdirectory(BINDER_PYBIND11_DIR)
 else()
@@ -19,9 +21,11 @@ if (BINDER_MOCK_TEST)
 else()
   make_directory(${CMAKE_CURRENT_BINARY_DIR}/test)
   SET(${stestname}_config_flag "")
+
   if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${stestname}.config")
     SET(${stestname}_config_flag --config ${stestname}.config )
   endif()
+
   file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/${stestname}.hpp.include "#include <${stestname}.hpp>" )
   if(CMAKE_HOST_SYSTEM_NAME MATCHES "Darwin")
     ADD_CUSTOM_TARGET(target${stestnamenodot}cpp
@@ -72,7 +76,7 @@ macro( binder_test testname vers)
                                                LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/py${vers}/${CMAKE_INSTALL_LIBDIR}/$<0:>
                                                RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/py${vers}/${CMAKE_INSTALL_LIBDIR}/$<0:>)
     target_compile_definitions(${testnamenodot}${vers} PRIVATE ${testnamenodot}_EXPORTS )
-    target_include_directories( ${testnamenodot}${vers} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}  ${pybind11_INCLUDE_DIR})
+    target_include_directories( ${testnamenodot}${vers} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../source ${pybind11_INCLUDE_DIR})
 
     if(BINDER_USE_PYTHON_IN_TEST)
       add_test( NAME ${testname}_python${vers} 

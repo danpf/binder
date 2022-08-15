@@ -335,7 +335,9 @@ class LLVMInstall(BaseInstaller):
             # clangpp_bin = str((Path(self.build_bin_dir) / "clang++").resolve())
             # clang_bin = str((Path(self.build_bin_dir) / "clang").resolve())
             self._run_llvm_cmake_base_command(
-                CompileOptions.cmake_extra_commands_from_known_compiler_paths("clang", "clang++", self.compiler.build_mode, self.build_with_ccache)
+                CompileOptions.cmake_extra_commands_from_known_compiler_paths(
+                    "clang", "clang++", self.compiler.build_mode, self.build_with_ccache
+                )
             )
             self._run_ninja_build_and_install_command()
         return ["LLVM_BIN_DIR={self.build_bin_dir}", "LLVM_VERSION={self.version}"]
@@ -351,6 +353,7 @@ class Pybind11Installer(BaseInstaller):
     ):
         self.github_sha_or_source_location = github_sha_or_source_location
         self.base_source_directory = base_source_directory
+        self.build_directory = str(Path(self.base_source_directory) / "build")
         self.include_dir = str(Path(self.base_source_directory) / "include")
 
     def _prepare(self):
@@ -374,7 +377,17 @@ class Pybind11Installer(BaseInstaller):
                 raise RuntimeError(f"Error downloading pybind11, unable to find path {self.include_dir}")
 
     def _install(self) -> List[str]:
-        # no install necessary
+        for cwd_dir, command in [
+            (
+                self.base_source_directory,
+                f"cmake -S -B {self.build_directory} -DPYBIND11_INSTALL=ON -DPYBIND11_TEST=OFF -G Ninja",
+            ),
+            (self.build_directory, "ninja install"),
+        ]:
+            ret = subprocess.run(command.split(), cwd=cwd_dir)
+            if ret.returncode != 0:
+                raise RuntimeError("Error downloading pybind11")
+            # no install necessary
         return [
             f"PYBIND11_INCLUDE_DIR={self.include_dir}",
             f"PYBIND11_SHA={self.github_sha_or_source_location.get_id()}",
@@ -439,7 +452,9 @@ def parse_args(args: List[str]):
     parser.add_argument("--binder-git-url", help="git url for binder")
     parser.add_argument("--llvm-git-url", help="git url for llvm")
 
-    parser.add_argument("--build-stages", choices=[1, 2], nargs="+", help="build stages 1, 2, or both 1 and 2", default=[1, 2], type=int)
+    parser.add_argument(
+        "--build-stages", choices=[1, 2], nargs="+", help="build stages 1, 2, or both 1 and 2", default=[1, 2], type=int
+    )
 
     parser.add_argument("--run-tests", help="run-tests", action="store_true")
     parser.add_argument("--build-with-ccache", help="build with ccache", action="store_true")
@@ -453,9 +468,11 @@ def parse_args(args: List[str]):
 
 
 def run_tests():
-    subprocess.run(["cmake", "."], cwd="/binder/test")
-    subprocess.run(["make", "-j", "10"], cwd="/binder/test")
-    subprocess.run(["ctest", ".", "--output-on-failure"], cwd="/binder/test")
+    subprocess.run(["cmake", ".", "-G", "Ninja"], cwd="/binder/test")
+    subprocess.run(["ninja"], cwd="/binder/test")
+    ret = subprocess.run(["ctest", ".", "--output-on-failure"], cwd="/binder/test")
+    if ret.returncode:
+        raise RuntimeError("Failure to run tests successfully")
 
 
 def main(args: argparse.Namespace):
