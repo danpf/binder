@@ -384,6 +384,7 @@ class Pybind11Installer(BaseInstaller):
             ),
             (self.build_directory, "ninja install"),
         ]:
+            print(f"Running commnd: {command} in directory: {cwd_dir}", flush=True)
             ret = subprocess.run(command.split(), cwd=cwd_dir)
             if ret.returncode != 0:
                 raise RuntimeError("Error downloading pybind11")
