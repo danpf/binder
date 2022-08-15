@@ -35,14 +35,14 @@ python3 /binder/build.py --build-mode=Release --compiler gcc --build-path /build
 FROM prepared as incremental-01
 RUN cat /binder/prepare_and_install_cmd.sh && bash /binder/prepare_and_install_cmd.sh
 
-FROM incremental-01 as incremental-02
+FROM incremental-01 as final
 ARG NCPUS=8
 RUN cat /binder/prepare_and_install_cmd.sh && INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh --build-stages 1 && unset INSTALL NCPUS
 
-FROM incremental-02 as final
-ARG NCPUS=8
-RUN cat /binder/prepare_and_install_cmd.sh && INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh --build-stages 2 && unset INSTALL NCPUS
-COPY ./make_bindings_via_cmake.py /bin/
+# FROM incremental-02 as final
+# ARG NCPUS=8
+# RUN cat /binder/prepare_and_install_cmd.sh && INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh --build-stages 2 && unset INSTALL NCPUS
+# COPY ./make_bindings_via_cmake.py /bin/
 
 # FROM prepared AS final
 # RUN INSTALL=y NCPUS=$NCPUS bash /binder/prepare_and_install_cmd.sh && unset INSTALL NCPUS

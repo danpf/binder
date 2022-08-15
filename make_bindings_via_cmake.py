@@ -23,7 +23,7 @@ def parseargs():
         _parser.add_argument(
             "--module-name", required=True, help="what you would like to call this project (ie- import module-name)"
         )
-        _parser.add_argument("--project-source", required=True, help="the location of the project's source files")
+        _parser.add_argument("--project-sources", nargs="+", required=True, help="the location of the project's source files")
 
         _parser.add_argument(
             "--source-directories-to-include",
@@ -39,6 +39,23 @@ def parseargs():
             default="",
             help="Extra binder flags, for debugging typically you use: --trace --annotate-includes",
         )
+        _parser.add_argument(
+            "--include-line-ignore-words",
+            default=[],
+            nargs="+",
+            help="Ignore include lines that have any of these in them",
+        )
+        _parser.add_argument(
+            "--preinstall-script",
+            default="",
+            help="Run this script before running binder",
+        )
+
+        _parser.add_argument(
+            "--custom-all-includes-file",
+            default="",
+            help="custom all includes file path",
+        )
 
         if not is_dbuild:
             _parser.add_argument(
@@ -46,6 +63,10 @@ def parseargs():
             )
             _parser.add_argument(
                 "--binder-executable", required=False, default="binder", help="Where binder is if not in $PATH"
+            )
+        else:
+            _parser.add_argument(
+                "--docker-image", required=False, default="binder", help="What docker image to use"
             )
 
     parser = argparse.ArgumentParser()
@@ -61,19 +82,21 @@ def parseargs():
     return args
 
 
-def get_all_project_source_files(project_source: str) -> List[str]:
-    ps_pth = Path(project_source)
-    lf = lambda x: list(ps_pth.rglob(x))
-    all_source_files = lf("*.hpp") + lf("*.cpp") + lf("*.h") + lf("*.hh") + lf("*.cc") + lf("*.c")
+def get_all_project_source_files(project_sources: List[str]) -> List[str]:
+    all_source_files = []
+    for project_source in project_sources:
+        ps_pth = Path(project_source)
+        lf = lambda x: list(ps_pth.rglob(x))
+        all_source_files += lf("*.hpp") + lf("*.cpp") + lf("*.h") + lf("*.hh") + lf("*.cc") + lf("*.c")
     return [str(x) for x in all_source_files]
 
 
-def make_and_write_all_includes(all_project_source_files: List[str], out_all_includes_fn: str) -> None:
+def make_and_write_all_includes(all_project_source_files: List[str], out_all_includes_fn: str, include_line_ignore_words: List[str]) -> None:
     all_includes = []
     for filename in all_project_source_files:
         with open(filename, "r") as fh:
             for line in fh:
-                if line.startswith("#include"):
+                if line.startswith("#include") and not any(x in line for x in include_line_ignore_words):
                     line = line.strip()
                     # if '"' in line:
                     #     line = line.replace('"', "<")[:-1] + ">"
@@ -177,8 +200,14 @@ def validate_args(args: argparse.Namespace):
             raise RuntimeError("Unable to find binder in $PATH")
 
 
-def run_in_docker():
-    new_args = [x if x != "dbuild" else "lbuild" for x in sys.argv[1:]]
+def run_in_docker(docker_image: str):
+    new_args = []
+    for i, x in enumerate(sys.argv[1:]):
+        if x == "dbuild":
+            new_args.append("lbuild")
+        if "docker-image" in x or (i > 0 and "docker-image" in sys.argv[1:][i-1]):
+            continue
+        new_args.append(x)
     command = [
         "docker",
         "run",
@@ -186,30 +215,36 @@ def run_in_docker():
         os.getcwd(),
         "-v",
         f"{os.getcwd()}:{os.getcwd()}",
-        # "-v",
-        # f"{args.output_directory}:{args.output_directory}",
         "-t",
-        "binder",
+        docker_image,
         "make_bindings_via_cmake.py",
         *new_args,
     ]
     command += ["--pybind11-source", "/build/pybind11", "--binder-executable", "binder"]
     log.info(" ".join(command))
+    log.debug(" ".join(command))
+    log.warning(" ".join(command))
+    # log.error(" ".join(command))
     ret = subprocess.run(command)
     if ret.returncode:
         raise RuntimeError(f"Error with command: {' '.join(command)}")
 
 
+def run_preinstall_script(preinstall_script: str):
+    if preinstall_script:
+        subprocess.run(["sh", preinstall_script])
+
 def main():
     args = parseargs()
     if args.subparser == "dbuild":
-        run_in_docker()
+        run_in_docker(args.docker_image)
         return
     else:
         validate_args(args)
+    run_preinstall_script(args.preinstall_script)
 
     extra_source_directories = [
-        args.project_source,
+        *args.project_sources,
         get_python_inc(),
         "pybind11/include",
     ] + args.source_directories_to_include
@@ -217,10 +252,15 @@ def main():
 
     shutil.rmtree(args.output_directory, ignore_errors=True)
     Path(args.output_directory).mkdir(exist_ok=True, parents=True)
-    all_includes_fn = str((Path(args.output_directory) / "all_includes.hpp").resolve())
+    all_project_source_files = get_all_project_source_files(args.project_sources)
 
-    all_project_source_files = get_all_project_source_files(args.project_source)
-    make_and_write_all_includes(all_project_source_files, all_includes_fn)
+    if args.custom_all_includes_file:
+        all_includes_fn = str(Path(args.custom_all_includes_file).resolve())
+    else:
+        all_includes_fn = str((Path(args.output_directory) / "all_includes.hpp").resolve())
+        make_and_write_all_includes(all_project_source_files, all_includes_fn, args.include_line_ignore_words)
+
+
     sources_to_compile = make_bindings_code(
         args.binder_executable,
         all_includes_fn,
