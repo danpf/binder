@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import importlib
 import os
 import sys
 import shutil
@@ -32,7 +33,7 @@ def parseargs():
             help="If you require any extra source directories to build your project, list them here",
         )
 
-        _parser.add_argument("--config-file", help="A config file for you to use")
+        _parser.add_argument("--config-file", required=True, help="A config file for you to use")
         _parser.add_argument(
             "--extra-binder-flags",
             default="",
@@ -40,14 +41,20 @@ def parseargs():
         )
 
         if not is_dbuild:
-            _parser.add_argument("--pybind11-source", required=True, help="the location of the pybind11 source directory")
-            _parser.add_argument("--binder-executable", required=False, default="binder", help="Where binder is if not in $PATH")
+            _parser.add_argument(
+                "--pybind11-source", required=True, help="the location of the pybind11 source directory"
+            )
+            _parser.add_argument(
+                "--binder-executable", required=False, default="binder", help="Where binder is if not in $PATH"
+            )
 
     parser = argparse.ArgumentParser()
-    master_parser = parser.add_subparsers(title="Subcommands", description="Valid subcommands", required=True, dest="subparser")
-    dbuild = master_parser.add_parser('dbuild')
+    master_parser = parser.add_subparsers(
+        title="Subcommands", description="Valid subcommands", required=True, dest="subparser"
+    )
+    dbuild = master_parser.add_parser("dbuild")
     add_args(dbuild, is_dbuild=True)
-    lbuild = master_parser.add_parser('lbuild')
+    lbuild = master_parser.add_parser("lbuild")
     add_args(lbuild, is_dbuild=False)
 
     args = parser.parse_args()
@@ -91,14 +98,10 @@ def make_bindings_code(
     config_file: str,
 ):
     includes = " ".join([f"-I{x}" for x in extra_source_directories])
-    if config_file:
-        config_file = f" --config {config_file}"
-    else:
-        config_file = ""
     command = (
         f"{binder_executable} --root-module {python_module_name}"
         f" --prefix {bindings_dir} {extra_binder_flags}"
-        f" {config_file}"
+        f" --config {config_file}"
         f" {all_includes_fn} -- -std=c++11"
         f" {includes} -DNDEBUG -v"
     )
@@ -162,10 +165,9 @@ def compile_sources(
 
     sys.stdout.flush()
     print("Testing Python lib...")
-    import myexample
-
-    print(dir(myexample))
-    print(myexample)
+    new_module = importlib.import_module(module_name)
+    print(dir(new_module))
+    print(new_module)
 
 
 def validate_args(args: argparse.Namespace):
@@ -174,25 +176,25 @@ def validate_args(args: argparse.Namespace):
         if new_binder is None:
             raise RuntimeError("Unable to find binder in $PATH")
 
+
 def run_in_docker():
     new_args = [x if x != "dbuild" else "lbuild" for x in sys.argv[1:]]
     command = [
-            "docker",
-            "run",
-            "--workdir",
-            os.getcwd(),
-            "-v",
-            f"{os.getcwd()}:{os.getcwd()}",
-            # "-v",
-            # f"{args.output_directory}:{args.output_directory}",
-            "-t",
-            "binder",
-            f"{os.getcwd()}/make_bindings_via_cmake.py",
-            *new_args,
+        "docker",
+        "run",
+        "--workdir",
+        os.getcwd(),
+        "-v",
+        f"{os.getcwd()}:{os.getcwd()}",
+        # "-v",
+        # f"{args.output_directory}:{args.output_directory}",
+        "-t",
+        "binder",
+        "make_bindings_via_cmake.py",
+        *new_args,
     ]
     command += ["--pybind11-source", "/build/pybind11", "--binder-executable", "binder"]
     log.info(" ".join(command))
-    log.error("TEMPORARILY HARDCODE python script^^")
     ret = subprocess.run(command)
     if ret.returncode:
         raise RuntimeError(f"Error with command: {' '.join(command)}")
