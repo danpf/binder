@@ -41,17 +41,17 @@ jobs:
           -v ${{ github.workspace }}/docker/ccache:/home/root/.ccache
           --target incremental-01
 
-    - name: Build-02
-      uses: redhat-actions/buildah-build@v2
-      with:
-        containerfiles: docker/Dockerfile
-        image: binder
-        tags: incremental-02
-        build-args: |
-          NCPUS=4
-        extra-args: |
-          -v ${{ github.workspace }}/docker/ccache:/home/root/.ccache
-          --target incremental-02
+    # - name: Build-02
+    #   uses: redhat-actions/buildah-build@v2
+    #   with:
+    #     containerfiles: docker/Dockerfile
+    #     image: binder
+    #     tags: incremental-02
+    #     build-args: |
+    #       NCPUS=4
+    #     extra-args: |
+    #       -v ${{ github.workspace }}/docker/ccache:/home/root/.ccache
+    #       --target incremental-02
 
     - name: Build-03
       uses: redhat-actions/buildah-build@v2
