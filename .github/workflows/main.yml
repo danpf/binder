@@ -24,7 +24,7 @@ jobs:
       env:
         cache-name: cache-ccache
       with:
-        path: ${{ github.workspace }}/docker/cache
+        path: ${{ github.workspace }}/docker/ccache
         key: ${{ runner.os }}-build-${{ env.cache-name }}-${ { steps.ccache_cache_timestamp.outputs.timestamp } }
         restore-keys: |
           ${{ runner.os }}-build-${{ env.cache-name }}-
@@ -74,7 +74,7 @@ jobs:
         build-args: |
           NCPUS=4
         extra-args: |
-          -v ${{ github.workspace }}/docker/ccache:/home/root/config/.ccache
+          -v ${{ github.workspace }}/docker/ccache:/home/root/.config/ccache
           --target test
 
   compilejobFedora35:
