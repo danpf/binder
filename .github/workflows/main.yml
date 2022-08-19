@@ -31,6 +31,7 @@ jobs:
 
     - name: Build-01
       uses: redhat-actions/buildah-build@v2
+      timeout-minutes: 10
       with:
         containerfiles: docker/Dockerfile
         image: binder
@@ -40,6 +41,13 @@ jobs:
         extra-args: |
           -v ${{ github.workspace }}/docker/ccache:/home/root/.config/ccache
           --target incremental-01
+
+    - name: tryArchive Test Results
+      if: always()
+      run: |
+        ls -la ${{ github.workspace }}/docker/ccache
+        echo "Xxxx"
+        ls -la ${{ github.workspace }}/docker/ccache/*
 
     # - name: Build-02
     #   uses: redhat-actions/buildah-build@v2
