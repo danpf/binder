@@ -38,7 +38,7 @@ jobs:
         build-args: |
           NCPUS=4
         extra-args: |
-          -v ${{ github.workspace }}/docker/ccache:/home/root/.ccache
+          -v ${{ github.workspace }}/docker/ccache:/home/root/.config/ccache
           --target incremental-01
 
     # - name: Build-02
@@ -62,7 +62,7 @@ jobs:
         build-args: |
           NCPUS=4
         extra-args: |
-          -v ${{ github.workspace }}/docker/ccache:/home/root/.ccache
+          -v ${{ github.workspace }}/docker/ccache:/home/root/.config/ccache
           --target final
 
     - name: Build-test
@@ -74,7 +74,7 @@ jobs:
         build-args: |
           NCPUS=4
         extra-args: |
-          -v ${{ github.workspace }}/docker/ccache:/home/root/.ccache
+          -v ${{ github.workspace }}/docker/ccache:/home/root/config/.ccache
           --target test
 
   compilejobFedora35:
