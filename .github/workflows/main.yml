@@ -20,7 +20,7 @@ jobs:
         message("::set-output name=timestamp::${current_date}")
 
     - name: ccache cache files
-      uses: pat-s/always-upload-cache@v3.0.2
+      uses: pat-s/always-upload-cache@v3.0.1
       env:
         cache-name: cache-ccache
       with:
